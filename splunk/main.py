@@ -1,4 +1,4 @@
-fdsfdhs#!/usr/bin/env python3
+#!/usr/bin/env python3
 import sys
 from functions import (
     load_whitelist,
