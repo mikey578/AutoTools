@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 import sys
-from functions import (
-    load_whitelist,
-    parse_result_file,
-    build_message,
-    send_telegram_message
-)
+import pprint
 from functions import *
+
+
+cfg = load_config("config.ini")
+
 # Telegram config
-BOT_TOKEN = "8024472794:AAEtN4Ccf722_Fxrw5ak7jDuxsJUG8hJXZ8"
-CHAT_ID = "7720672433"
+BOT_TOKEN = cfg["telegram"]["bot_token"]
+CHAT_ID = cfg["telegram"]["chat_id"]
+CF_TOKEN = cfg["cloudflare"]["api_token"]
 
 # Load whitelist (nếu không có file thì vẫn chạy với danh sách mặc định)
 WHITELIST = load_whitelist()
@@ -23,14 +23,18 @@ if len(sys.argv) < 8:
 PROJECT = sys.argv[4]
 RESULT_FILE = sys.argv[8]
 
+
+# Array ip block
 top_ips = parse_result_file(RESULT_FILE, whitelist=WHITELIST)
 message = build_message(PROJECT, top_ips)
 
-
-CF_TOKEN = "_O3S6AoQg7PkgqoA1NwHi0Ea1TGE0e7j97WHbIgu"
-
+## Bloking ptocess
+for ip, domain, hit in top_ips:
+    ## temp for debug
+    domain="abc.sgbgame.win"
+    block_ip_on_domain(CF_TOKEN, domain, ip)
 # Block IP 1.2.3.4 chỉ trên domain example.com
-block_ip_on_domain(CF_TOKEN, "abc.sgbgame.win", "168.93.213.19")
+#block_ip_on_domain(CF_TOKEN, "abc.sgbgame.win", "168.93.213.19")
 
 
 send_telegram_message(BOT_TOKEN, CHAT_ID, message)

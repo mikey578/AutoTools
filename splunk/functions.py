@@ -3,10 +3,32 @@ import os
 import gzip
 import csv
 import re
+import pprint
 import requests
 import ipaddress
 from datetime import datetime
+import configparser
+from pathlib import Path
 
+#----------------------
+# Load config from file
+#----------------------
+def load_config(path: str) -> dict:
+    """
+    Load .ini config file and return a nested dict.
+    Example:
+        cfg['telegram']['bot_token']
+    """
+    config_path = Path(path)
+    if not config_path.exists():
+        raise FileNotFoundError(f"Config file not found: {path}")
+
+    parser = configparser.ConfigParser()
+    parser.optionxform = str  # giữ nguyên chữ hoa/thường
+    parser.read(config_path, encoding="utf-8")
+
+    cfg = {section: dict(parser.items(section)) for section in parser.sections()}
+    return cfg
 
 
 # -------------------------------
@@ -64,14 +86,14 @@ def parse_result_file(result_file, whitelist=None):
                 if len(row) < 3:
                     continue
                 ip = row[0].replace('"', '').strip()
-                project = row[1].replace('"', '').strip()
+                domain = row[1].replace('"', '').strip()
                 try:
                     hits = int(row[2].replace('"', '').strip())
                 except ValueError:
                     continue
 
                 if hits > THRESHOLD and not is_ip_whitelisted(ip, whitelist):
-                    results.append((ip, project, hits))
+                    results.append((ip, domain, hits))
     except FileNotFoundError:
         return []
 
@@ -179,7 +201,7 @@ def get_zone_id_from_domain(cf_token, domain, account_id=None, timeout=10):
     return results[0].get("id")
 
 
-def block_ip_on_domain(cf_token, domain, ip, description="Auto-block"):
+def block_ip_on_domain(cf_token, domain, ip, description="Auto"):
     """
     Chặn 1 IP chỉ khi truy cập domain cụ thể trên Cloudflare Firewall Rule.
     """
