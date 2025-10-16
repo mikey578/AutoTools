@@ -24,17 +24,26 @@ PROJECT = sys.argv[4]
 RESULT_FILE = sys.argv[8]
 
 
+# Get Threshold from config
+project_setting = PROJECT.split('_')[0].lower()+ "_threshold";
+THRESHOLD=10000
+try:
+    THRESHOLD=int(cfg["project"][project_setting])
+except ValueError as e:
+    print(f"Can't get Threshold {e}")
+    ## DO NOT ACTION IF CAN'T GET THRESHOLD
+    sys.exit(1) 
+    
 # Array ip block
-top_ips = parse_result_file(RESULT_FILE, whitelist=WHITELIST)
+top_ips = parse_result_file(RESULT_FILE, WHITELIST,THRESHOLD)
 message = build_message(PROJECT, top_ips)
-
+print(123)
+pprint.pprint(top_ips)
 ## Bloking ptocess
 for ip, domain, hit in top_ips:
     ## temp for debug
     domain="abc.sgbgame.win"
-    block_ip_on_domain(CF_TOKEN, domain, ip)
-# Block IP 1.2.3.4 chỉ trên domain example.com
-#block_ip_on_domain(CF_TOKEN, "abc.sgbgame.win", "168.93.213.19")
+    print(domain)
+    block_ip_on_domain_new(CF_TOKEN, domain, ip,BOT_TOKEN,CHAT_ID)
 
-
-send_telegram_message(BOT_TOKEN, CHAT_ID, message)
+#send_telegram_message(BOT_TOKEN, CHAT_ID, message)
