@@ -4,7 +4,7 @@ import pprint
 from functions import *
 
 
-cfg = load_config("config.ini")
+cfg = load_config("/opt/splunk/bin/scripts/config.ini")
 
 # Telegram config
 BOT_TOKEN = cfg["telegram"]["bot_token"]
@@ -14,7 +14,7 @@ CF_TOKEN = cfg["cloudflare"]["api_token"]
 # Load whitelist (nếu không có file thì vẫn chạy với danh sách mặc định)
 WHITELIST = load_whitelist()
 # Log để kiểm tra Splunk truyền tham số gì
-with open("/opt/splunk/var/log/splunk/script_debug.log", "a") as f:
+with open("/opt/splunk/bin/scripts/script_debug.log", "a") as f:
     f.write(f"\nARGS ({len(sys.argv)}): {sys.argv}\n")
 
 if len(sys.argv) < 8:
@@ -37,7 +37,6 @@ except ValueError as e:
 # Array ip block
 top_ips = parse_result_file(RESULT_FILE, WHITELIST,THRESHOLD)
 message = build_message(PROJECT, top_ips)
-print(123)
 pprint.pprint(top_ips)
 ## Bloking ptocess
 for ip, domain, hit in top_ips:
