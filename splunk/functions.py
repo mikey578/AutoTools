@@ -1,10 +1,12 @@
-#!/usr/bin/env python3
+#!/usr/local/bin/python3
 import os
 import gzip
+import json
 import csv
 import re
 import pprint
 import requests # type: ignore
+import requests as rq
 import ipaddress
 from datetime import datetime
 import configparser
@@ -37,7 +39,7 @@ def load_config(path: str) -> dict:
 
 def load_whitelist(path="/opt/splunk/bin/scripts/whitelist.txt"):
     """
-    Đọc danh sách whitelist IP/range từ file (mỗi dòng 1 IP hoặc CIDR).
+     Read whitelist IP/range from file (IP/CIDR).
     """
     whitelist = []
     if os.path.exists(path):
@@ -50,8 +52,7 @@ def load_whitelist(path="/opt/splunk/bin/scripts/whitelist.txt"):
 
 def is_ip_whitelisted(ip, whitelist):
     """
-    Kiểm tra IP có nằm trong whitelist không.
-    Hỗ trợ cả IP đơn lẻ và CIDR range.
+	check ip whitelist
     """
     try:
         ip_obj = ipaddress.ip_address(ip)
@@ -71,11 +72,10 @@ def is_ip_whitelisted(ip, whitelist):
 # -------------------------------
 def parse_result_file(result_file, whitelist=None,threshold=10000):
     """
-    Đọc file Splunk CSV.GZ, lọc IP theo threshold và whitelist.
+	Read file from splunk
     """
     if whitelist is None:
         whitelist = []
-
     results = []
     THRESHOLD=threshold
     try:
@@ -91,7 +91,6 @@ def parse_result_file(result_file, whitelist=None,threshold=10000):
                     hits = int(row[2].replace('"', '').strip())
                 except ValueError:
                     continue
-
                 if hits > THRESHOLD and not is_ip_whitelisted(ip, whitelist):
                     results.append((ip, domain, hits))
     except FileNotFoundError:
@@ -105,7 +104,7 @@ def parse_result_file(result_file, whitelist=None,threshold=10000):
 
 def build_message(project, top_ips):
     """
-    Tạo nội dung tin nhắn Telegram cảnh báo.
+    	Build message
     """
     if not top_ips:
         top_ips_str = "(no result or all IPs whitelisted)"
@@ -128,7 +127,7 @@ def build_message(project, top_ips):
 
 def send_telegram_message(bot_token, chat_id, message):
     """
-    Gửi tin nhắn tới Telegram qua Bot API.
+	Send message
     """
     url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
     payload = {
@@ -145,7 +144,7 @@ def send_telegram_message(bot_token, chat_id, message):
 
 
 def format_args(args):
-    """Trả về chuỗi liệt kê toàn bộ tham số."""
+    """debug"""
     return "\n".join([f"Param {i} = {arg}" for i, arg in enumerate(args, start=1)])
 
 #------------------------------
@@ -164,7 +163,7 @@ def is_domain(value):
 
 def get_zone_id_from_domain(cf_token, domain, account_id=None, timeout=10):
     """
-    Lấy zone_id của domain qua Cloudflare API.
+	get zone from domain/sub
     """
     headers = {
         "Authorization": f"Bearer {cf_token}",
@@ -173,7 +172,7 @@ def get_zone_id_from_domain(cf_token, domain, account_id=None, timeout=10):
     parts = domain.strip().lower().split(".")
     if len(parts) > 2:
         root_domain = ".".join(parts[-2:])  # lấy 2 phần cuối
-        print(f"ℹ️ {domain} là subdomain, dùng zone ID của {root_domain}")
+        print(f"ℹ️ {domain} is subdomain, zone ID is {root_domain}")
     else:
         root_domain = domain
     params = {"name": root_domain}
@@ -186,16 +185,16 @@ def get_zone_id_from_domain(cf_token, domain, account_id=None, timeout=10):
         resp = requests.get(url, headers=headers, params=params, timeout=timeout)
         data = resp.json()
     except Exception as e:
-        print(f"[CF] Lỗi khi gọi API lấy zone id cho {domain}: {e}")
+        print(f"[CF] Can't get zone id from {domain}: {e}")
         return None
 
     if resp.status_code != 200 or not data.get("success"):
-        print(f"[CF] Không lấy được zone id cho {domain}: {data}")
+        print(f"[CF] Can't get zone id from {domain}: {data}")
         return None
 
     results = data.get("result", [])
     if not results:
-        print(f"[CF] Không tìm thấy zone cho domain {domain}")
+        print(f"[CF] Can't get Zone id from domain {domain}")
         return None
 
     return results[0].get("id")
@@ -203,22 +202,21 @@ def get_zone_id_from_domain(cf_token, domain, account_id=None, timeout=10):
 
 def block_ip_on_domain(cf_token, domain, ip, bot_token,chat_id, description="Auto"):
     """
-    Chặn 1 IP chỉ khi truy cập domain cụ thể trên Cloudflare Firewall Rule.
+	block ip access domain
     """
     msg=""
     if not is_domain(domain):
-        send_telegram_message(bot_token, chat_id, "Domain không hợp lệ: " + domain)
-        print(f"❌ Domain không hợp lệ: {domain}")
+        send_telegram_message(bot_token, chat_id, "Wrong domain: " + domain)
+        print(f"❌ DWrong domain: {domain}")
         return False
     if not is_ip_or_cidr(ip):
-        send_telegram_message(bot_token, chat_id, "IP không hợp lệ: " + ip)
-        print(f"❌ IP không hợp lệ: {ip}")
+        send_telegram_message(bot_token, chat_id, "Wrong IP: " + ip)
+        print(f"❌ IWrong IP: {ip}")
         return False
 
     zone_id = get_zone_id_from_domain(cf_token, domain)
     if not zone_id:
-        send_telegram_message(bot_token, chat_id, "Không lấy được Zone ID cho  " + domain)
-        print(f"❌ Không lấy được Zone ID cho {domain}")
+        send_telegram_message(bot_token, chat_id, "Can't get zone id from  " + domain)
         return False
 
     headers = {
@@ -238,12 +236,10 @@ def block_ip_on_domain(cf_token, domain, ip, bot_token,chat_id, description="Aut
             for rule in existing.get("result", []):
                 filt = rule.get("filter", {})
                 if filt.get("expression") == expression:
-                    send_telegram_message(bot_token, chat_id,"Rule chặn "+ ip + " trên domain " + domain + "đã tồn tại" )
-                    print(f"⚠️ Rule chặn {ip} trên domain {domain} đã tồn tại (rule_id={rule['id']})")
+                    send_telegram_message(bot_token, chat_id,f"IP:" + ip + " Blocked access on domain:" + domain )
                     return True
     except Exception as e:
-        send_telegram_message(bot_token, chat_id, "Không thể kiểm tra rule tồn tại: " + e)
-        print(f"⚠️ Không thể kiểm tra rule tồn tại: {e}")
+        send_telegram_message(bot_token, chat_id, "Can't get rule: " + e)
     
    # api_url = f"https://api.cloudflare.com/client/v4/zones/{zone_id}/firewall/rules"
     payload = [{
@@ -259,40 +255,32 @@ def block_ip_on_domain(cf_token, domain, ip, bot_token,chat_id, description="Aut
         resp = requests.post(api_url, headers=headers, json=payload, timeout=15)
         data = resp.json()
         if resp.status_code in (200, 201) and data.get("success"):
-            send_telegram_message(bot_token, chat_id, "Đã block IP " + ip +  " trên domain " +  domain + " zone " + zone_id)
-            print(f"✅ Đã block IP {ip} trên domain {domain} (zone {zone_id})")
+            send_telegram_message(bot_token, chat_id, "Blocked IP: " + ip +  " access domain: " +  domain)
             return True
         else:
-            send_telegram_message(bot_token, chat_id, "Lỗi block IP " + ip +  " trên "  + domain + ": " + data)
-            print(f"❌ Lỗi block IP {ip} trên {domain}: {data}")
+            send_telegram_message(bot_token, chat_id, "error block IP " + ip +  " on "  + domain + ": " + data)
             return False
     except Exception as e:
-        send_telegram_message(bot_token, chat_id, "Exception khi block IP" +  ip + " trên " + domain + ":" + e)
-        print(f"⚠️ Exception khi block IP {ip} trên {domain}: {e}")
+        send_telegram_message(bot_token, chat_id, "Exception block IP" +  ip + " on " + domain + ":" + e)
         return False
 
 
 ##### Update Rule 
 def block_ip_on_domain_new(cf_token, domain, ip, bot_token, chat_id, description="Auto"):
     """
-    ✅ Cập nhật IP vào rule có tên 'AutoBlock-CustomRule' (duy nhất trên zone)
-    ✅ Không tạo thêm unused filter
-    ✅ Nếu chưa có rule này → tự tạo mới
     """
     if not is_domain(domain):
-        msg = f"❌ Domain không hợp lệ: {domain}"
+        msg = f"Wrong domain: {domain}"
         send_telegram_message(bot_token, chat_id, msg)
-        print(msg)
         return False
     if not is_ip_or_cidr(ip):
-        msg = f"❌ IP không hợp lệ: {ip}"
+        msg = f"Wrong IP:  {ip}"
         send_telegram_message(bot_token, chat_id, msg)
-        print(msg)
         return False
 
     zone_id = get_zone_id_from_domain(cf_token, domain)
     if not zone_id:
-        msg = f"❌ Không lấy được Zone ID cho {domain}"
+        msg = "Zone id not found"
         send_telegram_message(bot_token, chat_id, msg)
         print(msg)
         return False
@@ -306,11 +294,11 @@ def block_ip_on_domain_new(cf_token, domain, ip, bot_token, chat_id, description
     api_filters = f"https://api.cloudflare.com/client/v4/zones/{zone_id}/filters"
 
     try:
-        # 🔍 Lấy danh sách rule hiện có
+        # 🔍get current rule
         resp = requests.get(api_rules, headers=headers, timeout=15)
         rules = resp.json().get("result", []) if resp.ok else []
 
-        # 🔍 Tìm rule có description bắt đầu bằng AutoBlock-CustomRule
+        # 🔍find rule have description start with  AutoBlock-CustomRule
         target_rule = None
         for r in rules:
             desc = r.get("description", "")
@@ -327,33 +315,32 @@ def block_ip_on_domain_new(cf_token, domain, ip, bot_token, chat_id, description
             old_filter_id = filt.get("id")
 
             if new_expr in old_expr:
-                msg = f"IP {ip} đã tồn tại trong rule AutoBlock CustomRule trên {domain}"
+                msg = f"IP: {ip} is Blocked on domain {domain}"
                 send_telegram_message(bot_token, chat_id, msg)
-                print(msg)
                 return True
 
-            # 🔁 Gộp thêm IP vào cùng biểu thức cũ
+            # 🔁build new expression
             updated_expr = f"{old_expr} or {new_expr}" if old_expr else new_expr
 
-            # ⚙️ Cập nhật lại filter cũ thay vì tạo filter mới → tránh unused
+            # Update old rule
             update_filter_payload = {
                 "id": old_filter_id,
                 "expression": updated_expr,
                 "paused": False,
                 "description": "AutoBlock-CustomRule"
             }
-
-            upd_filter = requests.put(
-                f"{api_filters}/{old_filter_id}", headers=headers, json=update_filter_payload, timeout=15
-            ).json()
-
+            try:
+              upd_filter = rq.put(f"{api_filters}/{old_filter_id}",headers={**headers, "Content-Type": "application/json"},data=json.dumps(update_filter_payload),timeout=15).json()
+            except Exception as e:
+               msg = f"Can't update Cloudflare: {e}"
+               send_telegram_message(bot_token, chat_id, msg)
             if upd_filter.get("success"):
-                msg = f"Đã thêm IP {ip} vào filter {old_filter_id} của rule AutoBlock-CustomRule"
+                msg = f"Blocked IP: {ip} access {domain} on rule AutoBlock-CustomRule"
                 send_telegram_message(bot_token, chat_id, msg)
                 print(msg)
                 return True
             else:
-                msg = f"Lỗi cập nhật filter: {upd_filter}"
+                msg = f"Can't update filter: {upd_filter}"
                 send_telegram_message(bot_token, chat_id, msg)
                 print(msg)
                 return False
@@ -368,7 +355,7 @@ def block_ip_on_domain_new(cf_token, domain, ip, bot_token, chat_id, description
             new_filter = requests.post(api_filters, headers=headers, json=filter_payload, timeout=15).json()
 
             if not new_filter.get("success"):
-                msg = f"❌ Lỗi tạo filter: {new_filter}"
+                msg = f"❌Can't create filter: {new_filter}"
                 send_telegram_message(bot_token, chat_id, msg)
                 print(msg)
                 return False
@@ -383,18 +370,16 @@ def block_ip_on_domain_new(cf_token, domain, ip, bot_token, chat_id, description
             r = requests.post(api_rules, headers=headers, json=rule_payload, timeout=15).json()
 
             if r.get("success"):
-                msg = f"✅ Đã tạo rule AutoBlock-CustomRule và chặn IP {ip} trên {domain}"
+                msg = f"✅Create rule AutoBlock-CustomRule and block IP {ip} access {domain}"
                 send_telegram_message(bot_token, chat_id, msg)
-                print(msg)
                 return True
             else:
-                msg = f"❌ Lỗi tạo rule mới: {r}"
+                msg = f"Can't create rule:  {r}"
                 send_telegram_message(bot_token, chat_id, msg)
                 print(msg)
                 return False
 
     except Exception as e:
-        msg = f"⚠️ Exception khi xử lý Cloudflare: {e}"
+        msg = f"Can't update Cloudflare: {e}"
         send_telegram_message(bot_token, chat_id, msg)
-        print(msg)
         return False

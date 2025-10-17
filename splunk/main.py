@@ -36,13 +36,16 @@ except ValueError as e:
     
 # Array ip block
 top_ips = parse_result_file(RESULT_FILE, WHITELIST,THRESHOLD)
+if not top_ips:   # kiểm tra list rỗng
+    print("⚠️ Không có IP nào, thoát chương trình.")
+    sys.exit(0)
 message = build_message(PROJECT, top_ips)
 pprint.pprint(top_ips)
 ## Bloking ptocess
 for ip, domain, hit in top_ips:
     ## temp for debug
-    domain="abc.sgbgame.win"
-    print(domain)
+    #domain="abc.sgbgame.win"
+   # print(domain)
     block_ip_on_domain_new(CF_TOKEN, domain, ip,BOT_TOKEN,CHAT_ID)
 
 #send_telegram_message(BOT_TOKEN, CHAT_ID, message)
