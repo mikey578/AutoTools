@@ -321,7 +321,7 @@ def block_ip_on_domain_new(cf_token, domain, ip, bot_token, chat_id, description
 
             # 🔁build new expression
             updated_expr = f"{old_expr} or {new_expr}" if old_expr else new_expr
-            create_firewall_rule("sgbgame.win","qp613CjQ07zaE28jWKmfdvUTT0wGjTvNl7jtwiBi","AutoBlock-CustomRule1")
+            create_firewall_rule("sgbgame.win",cf_token,"AutoBlock-CustomRule1")
             # Update old rule
             update_filter_payload = {
                 "id": old_filter_id,
@@ -332,7 +332,7 @@ def block_ip_on_domain_new(cf_token, domain, ip, bot_token, chat_id, description
             try:
               upd_filter = rq.put(f"{api_filters}/{old_filter_id}",headers={**headers, "Content-Type": "application/json"},data=json.dumps(update_filter_payload),timeout=15).json()
             except Exception as e:
-               msg = f"Can't update Cloudflare: {e}"
+               msg = f"Can't update Cloudflare: {e} on {domain}"
                send_telegram_message(bot_token, chat_id, msg)
             if upd_filter.get("success"):
                 msg = f"Blocked IP: {ip} access {domain} on rule AutoBlock-CustomRule"
