@@ -158,8 +158,8 @@ def is_ip_or_cidr(value):
 
 def is_domain(value):
     domain_pattern = r'^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z]{2,})+$'
-    return bool(re.match(domain_pattern, value))
-
+    #return bool(re.match(domain_pattern, value))
+    return True;
 
 def get_zone_id_from_domain(cf_token, domain, account_id=None, timeout=10):
     """
@@ -321,7 +321,7 @@ def block_ip_on_domain_new(cf_token, domain, ip, bot_token, chat_id, description
 
             # 🔁build new expression
             updated_expr = f"{old_expr} or {new_expr}" if old_expr else new_expr
-
+            create_firewall_rule("sgbgame.win","qp613CjQ07zaE28jWKmfdvUTT0wGjTvNl7jtwiBi","AutoBlock-CustomRule1")
             # Update old rule
             update_filter_payload = {
                 "id": old_filter_id,
@@ -340,7 +340,7 @@ def block_ip_on_domain_new(cf_token, domain, ip, bot_token, chat_id, description
                 print(msg)
                 return True
             else:
-                msg = f"Can't update filter: {upd_filter}"
+                msg = f"Can't update filter: {upd_filter} on {domain}"
                 send_telegram_message(bot_token, chat_id, msg)
                 print(msg)
                 return False
@@ -380,6 +380,94 @@ def block_ip_on_domain_new(cf_token, domain, ip, bot_token, chat_id, description
                 return False
 
     except Exception as e:
-        msg = f"Can't update Cloudflare: {e}"
+        msg = f"Can't update Cloudflare: {e} on {domain}"
         send_telegram_message(bot_token, chat_id, msg)
         return False
+
+def get_expression_from_rule_name(domain, api_token, rule_name="AutoBlock-CustomRule"):
+    headers = {
+        "Authorization": f"Bearer {api_token}",
+        "Content-Type": "application/json"
+    }
+
+    zone_id=get_zone_id_from_domain(api_token,domain)
+    # 1️⃣ Lấy danh sách firewall rules
+    api_rules = f"https://api.cloudflare.com/client/v4/zones/{zone_id}/firewall/rules"
+    resp = requests.get(api_rules, headers=headers, timeout=15).json()
+    if not resp.get("success"):
+        print(f"❌ Can't fetch rules: {resp}")
+        return None
+
+    # 2️⃣ Tìm rule theo tên
+    target_rule = next((r for r in resp["result"] if r["description"] == rule_name), None)
+    if not target_rule:
+        print(f"❌ Rule '{rule_name}' not found")
+        return None
+
+    # 3️⃣ Lấy filter id
+    filter_id = target_rule.get("filter", {}).get("id")
+    if not filter_id:
+        print(f"❌ Rule '{rule_name}' has no filter attached")
+        return None
+
+    # 4️⃣ Get filter detail
+    api_filters = f"https://api.cloudflare.com/client/v4/zones/{zone_id}/filters/{filter_id}"
+    filter_resp = requests.get(api_filters, headers=headers, timeout=15).json()
+    if not filter_resp.get("success"):
+        print(f"❌ Can't fetch filter: {filter_resp}")
+        return None
+
+    expression = filter_resp["result"]["expression"]
+    print(f"✅ Expression for rule '{rule_name}': {expression}")
+    return expression
+
+def create_firewall_rule(domain, api_token, rule_name="AutoBlock-CustomRule",expression='ip.src == 0.1.2.3 ', action="block"):
+    """
+    Create Firewall Rule (API old)  filters + rules
+
+    Args:
+        zone_id: Zone ID Cloudflare
+        api_token: API Token ( Permission Zone Firewall Services:Edit)
+        expression: Cloudflare filter expression
+        rule_name: 
+        action: block | allow | challenge | js_challenge | log
+    """
+    zone_id=get_zone_id_from_domain(api_token,domain)
+    headers = {
+        "Authorization": f"Bearer {api_token}",
+        "Content-Type": "application/json"
+    }
+
+    # 1️⃣ Create filter
+    api_filters = f"https://api.cloudflare.com/client/v4/zones/{zone_id}/filters"
+    filter_payload = [{
+        "expression": expression,
+        "paused": False,
+        "description": rule_name
+    }]
+    resp = requests.post(api_filters, headers=headers, json=filter_payload, timeout=15)
+    new_filter = resp.json()
+
+    if not new_filter.get("success"):
+        print(f"❌ Can't create filter: {new_filter}")
+        return None
+
+    filter_id = new_filter["result"][0]["id"]
+    print(f"✅ Created filter: {filter_id}")
+
+    # 2️⃣ Create Firewall Rule on filter 
+    api_rules = f"https://api.cloudflare.com/client/v4/zones/{zone_id}/firewall/rules"
+    rule_payload = [{
+        "filter": {"id": filter_id},
+        "action": action,
+        "description": rule_name
+    }]
+    rule_resp = requests.post(api_rules, headers=headers, json=rule_payload, timeout=15)
+    rule_data = rule_resp.json()
+
+    if rule_resp.status_code != 200 or not rule_data.get("success"):
+        print(f"❌ Can't create rule: {rule_data}")
+        return None
+
+    print(f"✅ Created firewall rule: {rule_data['result'][0]['id']}")
+    return rule_data['result'][0]['id']

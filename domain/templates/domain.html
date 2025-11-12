@@ -1,0 +1,35 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Domain: {{ domain }}</title>
+  <style>body{font-family:Arial;max-width:800px;margin:20px auto}</style>
+</head>
+<body>
+  <h1>Domain: {{ domain }}</h1>
+  <a href="{{ url_for('index') }}">← Back</a>
+
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      {% for cat,msg in messages %}
+        <div class="{{cat}}">{{msg}}</div>
+      {% endfor %}
+    {% endif %}
+  {% endwith %}
+
+  <h2>Edit Domain</h2>
+  <form method="post" action="{{ url_for('update_domain', domain=domain) }}">
+    <label>Allow IPs (comma separated):<br>
+      <input name="allow_ip" style="width:100%" value="{{ data.allow_ip }}">
+    </label><br><br>
+    <label>Deny IPs (comma separated):<br>
+      <input name="deny_ip" style="width:100%" value="{{ data.deny_ip }}">
+    </label><br><br>
+    <label>Note:<br><input name="note" style="width:100%" value="{{ data.note }}"></label><br><br>
+    <button type="submit">Save</button>
+  </form>
+
+  <h3>Raw Data</h3>
+  <pre>{{ data | tojson(indent=2) }}</pre>
+</body>
+</html>
