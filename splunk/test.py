@@ -126,8 +126,8 @@ def create_firewall_rule(domain, api_token, rule_name="AutoBlock-CustomRule",exp
     return rule_data['result'][0]['id']
 
 
-#zone_id=get_zone_id_from_domain("qp613CjQ07zaE28jWKmfdvUTT0wGjTvNl7jtwiBi","sgbgame.win")
+#zone_id=get_zone_id_from_domain("123","sgbgame.win")
 #print(zone_id)
-create_firewall_rule("sgbgame.win","qp613CjQ07zaE28jWKmfdvUTT0wGjTvNl7jtwiBi","AutoBlock-CustomRule1")
-express=get_expression_from_rule_name("sgbgame.win","qp613CjQ07zaE28jWKmfdvUTT0wGjTvNl7jtwiBi")
+create_firewall_rule("sgbgame.win","123","AutoBlock-CustomRule1")
+express=get_expression_from_rule_name("sgbgame.win","123")
 print(express)
