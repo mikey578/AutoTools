@@ -70,7 +70,7 @@ def is_ip_whitelisted(ip, whitelist):
 # -------------------------------
 # Parse result file
 # -------------------------------
-def parse_result_file(result_file, whitelist=None,threshold=10000):
+def parse_result_file(result_file, whitelist=None,threshold=10000,fixdomain=False):
     """
 	Read file from splunk
     """
@@ -83,16 +83,30 @@ def parse_result_file(result_file, whitelist=None,threshold=10000):
             reader = csv.reader(f)
             next(reader, None)  # bỏ header
             for row in reader:
-                if len(row) < 3:
-                    continue
-                ip = row[0].replace('"', '').strip()
-                domain = row[1].replace('"', '').strip()
-                try:
-                    hits = int(row[2].replace('"', '').strip())
-                except ValueError:
-                    continue
-                if hits > THRESHOLD and not is_ip_whitelisted(ip, whitelist):
-                    results.append((ip, domain, hits))
+                # For application log no domain
+                # Format: ip threshold
+                if len(row) == 2:
+                    ip = row[0].replace('"', '').strip()
+                    domain = fixdomain
+                    try:
+                        hits = int(row[1].replace('"', '').strip())
+                    except ValueError:
+                        continue
+                    if hits > THRESHOLD and not is_ip_whitelisted(ip, whitelist):
+                        results.append((ip, domain, hits))
+                else:
+                # For nginx access log with domain in log
+                # Format: IP Domain Threshold
+                    if len(row) < 3:
+                        continue
+                    ip = row[0].replace('"', '').strip()
+                    domain = row[1].replace('"', '').strip()
+                    try:
+                        hits = int(row[2].replace('"', '').strip())
+                    except ValueError:
+                        continue
+                    if hits > THRESHOLD and not is_ip_whitelisted(ip, whitelist):
+                        results.append((ip, domain, hits))
     except FileNotFoundError:
         return []
 
@@ -266,7 +280,7 @@ def block_ip_on_domain(cf_token, domain, ip, bot_token,chat_id, description="Aut
 
 
 ##### Update Rule 
-def block_ip_on_domain_new(cf_token, domain, ip, bot_token, chat_id, description="Auto"):
+def block_ip_on_domain_new(cf_token, domain, ip, bot_token, chat_id, description="Auto", domainonrule="True"):
     """
     """
     if not is_domain(domain):
@@ -305,9 +319,12 @@ def block_ip_on_domain_new(cf_token, domain, ip, bot_token, chat_id, description
             if desc == "AutoBlock-CustomRule":
                 target_rule = r
                 break
-
-        new_expr = f'(http.host eq "{domain}"  and ip.src eq {ip})'
-
+        ### Build new rule
+        if domainonrule == "True":
+            new_expr = f'(http.host eq "{domain}"  and ip.src eq {ip})'
+        else:
+            new_expr = f'(ip.src eq {ip})'
+        print(new_expr)
         if target_rule:
             rule_id = target_rule["id"]
             filt = target_rule.get("filter", {})
@@ -321,7 +338,6 @@ def block_ip_on_domain_new(cf_token, domain, ip, bot_token, chat_id, description
 
             # 🔁build new expression
             updated_expr = f"{old_expr} or {new_expr}" if old_expr else new_expr
-            create_firewall_rule("sgbgame.win",cf_token,"AutoBlock-CustomRule1")
             # Update old rule
             update_filter_payload = {
                 "id": old_filter_id,
