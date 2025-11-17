@@ -70,7 +70,7 @@ def is_ip_whitelisted(ip, whitelist):
 # -------------------------------
 # Parse result file
 # -------------------------------
-def parse_result_file(result_file, whitelist=None,threshold=10000,fixdomain=False):
+def parse_result_file(result_file, whitelist=None,threshold=10000,fixdomain="False"):
     """
 	Read file from splunk
     """
@@ -85,7 +85,7 @@ def parse_result_file(result_file, whitelist=None,threshold=10000,fixdomain=Fals
             for row in reader:
                 # For application log no domain
                 # Format: ip threshold
-                if len(row) == 2:
+                if fixdomain != "False":
                     ip = row[0].replace('"', '').strip()
                     domain = fixdomain
                     try:
@@ -348,7 +348,7 @@ def block_ip_on_domain_new(cf_token, domain, ip, bot_token, chat_id, description
             try:
               upd_filter = rq.put(f"{api_filters}/{old_filter_id}",headers={**headers, "Content-Type": "application/json"},data=json.dumps(update_filter_payload),timeout=15).json()
             except Exception as e:
-               msg = f"Can't update Cloudflare: {e} on {domain}"
+               msg = f"Can't update Cloudflare : {e} on {domain}"
                send_telegram_message(bot_token, chat_id, msg)
             if upd_filter.get("success"):
                 msg = f"Blocked IP: {ip} access {domain} on rule AutoBlock-CustomRule"
@@ -396,7 +396,7 @@ def block_ip_on_domain_new(cf_token, domain, ip, bot_token, chat_id, description
                 return False
 
     except Exception as e:
-        msg = f"Can't update Cloudflare: {e} on {domain}"
+        msg = f"Can't update Cloudflare 1: {e} on {domain}"
         send_telegram_message(bot_token, chat_id, msg)
         return False
 

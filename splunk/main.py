@@ -4,8 +4,8 @@ import pprint
 from functions import *
 
 
-#cfg = load_config("/opt/splunk/bin/scripts/config.ini")
-cfg = load_config("config.ini")
+cfg = load_config("/opt/splunk/bin/scripts/config.ini")
+#cfg = load_config("config.ini")
 # Telegram config
 BOT_TOKEN = cfg["telegram"]["bot_token"]
 CHAT_ID = cfg["telegram"]["chat_id"]
@@ -20,28 +20,36 @@ with open("/opt/splunk/bin/scripts/script_debug.log", "a") as f:
 if len(sys.argv) < 8:
     sys.exit("Not enough arguments for this script")
 
+#### full name
 PROJECT = sys.argv[4]
 RESULT_FILE = sys.argv[8]
 
 
 # Get Threshold from config
+# sort name
+project = PROJECT.split('_')[0].lower()
 project_setting = PROJECT.split('_')[0].lower()+ "_threshold";
+
 THRESHOLD=10000
 ## Default add domain in expression
-DOMAININRULE = True
-
-if PROJECT in cfg:
-   THRESHOLD = int(cfg[PROJECT]['threshold'])
-   DOMAIN =  cfg[PROJECT]['domain']
-   DOMAININRULE = cfg[PROJECT]['domaininrule']
+DOMAININRULE = "True"
+if project in cfg:
+   THRESHOLD = int(cfg[project]['threshold'])
+   DOMAIN =  cfg[project]['domain']
+   DOMAININRULE = cfg[project]['domaininrule']
+ #  msg=f"{PROJECT} on conf"
+ #  send_telegram_message(BOT_TOKEN, CHAT_ID,msg )
    # Array ip block
    top_ips = parse_result_file(RESULT_FILE, WHITELIST,THRESHOLD,DOMAIN)
 else:
     print("not in cfg")
+   # msg=f"{PROJECT} on nginx log"
+   # send_telegram_message(BOT_TOKEN, CHAT_ID,msg )
     try:
         THRESHOLD=int(cfg["project"][project_setting])
     except ValueError as e:
         print(f"Can't get Threshold {e}")
+    #    send_telegram_message(BOT_TOKEN, CHAT_ID,f"Can't get Threshold {e}")
         ## DO NOT ACTION IF CAN'T GET THRESHOLD
         sys.exit(1) 
     # Array ip block
