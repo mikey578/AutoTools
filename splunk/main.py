@@ -14,8 +14,18 @@ CF_TOKEN = cfg["cloudflare"]["api_token"]
 # Load whitelist (nếu không có file thì vẫn chạy với danh sách mặc định)
 WHITELIST = load_whitelist()
 # Log để kiểm tra Splunk truyền tham số gì
-with open("/opt/splunk/bin/scripts/script_debug.log", "a") as f:
-    f.write(f"\nARGS ({len(sys.argv)}): {sys.argv}\n")
+#with open("/opt/splunk/bin/scripts/script_debug.log", "a") as f:
+#    f.write(f"\nARGS ({len(sys.argv)}): {sys.argv}\n")
+
+args = [a.strip().replace('\n','').replace('\r','').replace('\t','') for a in sys.argv]
+cmd_parts = [args[0]] + [f"'{a}'" for a in args[1:]]
+cmd = " ".join(cmd_parts)
+
+date_suffix = datetime.now().strftime("%y%m%d")
+log_path = f"/opt/splunk/bin/scripts/logs/{date_suffix}.log"
+with open(log_path, "a") as f:
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    f.write(f"[{now}] CMD: {cmd} \n")
 
 if len(sys.argv) < 8:
     sys.exit("Not enough arguments for this script")

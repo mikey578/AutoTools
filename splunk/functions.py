@@ -11,7 +11,7 @@ import ipaddress
 from datetime import datetime
 import configparser
 from pathlib import Path
-
+import time
 #----------------------
 # Load config from file
 #----------------------
@@ -304,7 +304,7 @@ def block_ip_on_domain_new(cf_token, domain, ip, bot_token, chat_id, description
         "Content-Type": "application/json"
     }
 
-    api_rules = f"https://api.cloudflare.com/client/v4/zones/{zone_id}/firewall/rules"
+    api_rules = f"https://api.cloudflare.com/client/v4/zones/{zone_id}/firewall/rules?per_page=1000"
     api_filters = f"https://api.cloudflare.com/client/v4/zones/{zone_id}/filters"
 
     try:
@@ -324,7 +324,6 @@ def block_ip_on_domain_new(cf_token, domain, ip, bot_token, chat_id, description
             new_expr = f'(http.host eq "{domain}"  and ip.src eq {ip})'
         else:
             new_expr = f'(ip.src eq {ip})'
-        print(new_expr)
         if target_rule:
             rule_id = target_rule["id"]
             filt = target_rule.get("filter", {})
@@ -338,18 +337,34 @@ def block_ip_on_domain_new(cf_token, domain, ip, bot_token, chat_id, description
 
             # 🔁build new expression
             updated_expr = f"{old_expr} or {new_expr}" if old_expr else new_expr
-            # Update old rule
-            update_filter_payload = {
-                "id": old_filter_id,
-                "expression": updated_expr,
-                "paused": False,
-                "description": "AutoBlock-CustomRule"
-            }
-            try:
-              upd_filter = rq.put(f"{api_filters}/{old_filter_id}",headers={**headers, "Content-Type": "application/json"},data=json.dumps(update_filter_payload),timeout=15).json()
-            except Exception as e:
-               msg = f"Can't update Cloudflare : {e} on {domain}"
-               send_telegram_message(bot_token, chat_id, msg)
+            if len(updated_expr) <4000:
+                # Update old rule
+                update_filter_payload = {
+                    "id": old_filter_id,
+                    "expression": updated_expr,
+                    "paused": False,
+                    "description": "AutoBlock-CustomRule"
+                }
+                try:
+                    upd_filter = rq.put(f"{api_filters}/{old_filter_id}",headers={**headers, "Content-Type": "application/json"},data=json.dumps(update_filter_payload),timeout=15).json()
+                except Exception as e:
+                    msg = f"Can't update Cloudflare : {e} on {domain}"
+                    send_telegram_message(bot_token, chat_id, msg)
+            else:
+                try:    
+                    updated_expr = new_expr
+                    ### rename old rule
+                    date_suffix = datetime.now().strftime("%y%m%d%H")
+                    cf_rename_rule_by_name(domain,cf_token,"AutoBlock-CustomRule",f"{date_suffix}_AutoBlock-CustomRule")
+                    create_firewall_rule(domain,cf_token,"AutoBlock-CustomRule",updated_expr)
+                    msg=f"Rename rule AutoBlock-CustomRule to {date_suffix}_AutoBlock-CustomRule on {domain}.Create rule AutoBlock-CustomRule on {domain}"
+                    send_telegram_message(bot_token, chat_id, msg) 
+                    
+                except Exception as e:
+                    msg=f"Can't move rule on {domain}"
+                    send_telegram_message(bot_token, chat_id, msg) 
+
+            ## Check respone
             if upd_filter.get("success"):
                 msg = f"Blocked IP: {ip} access {domain} on rule AutoBlock-CustomRule"
                 send_telegram_message(bot_token, chat_id, msg)
@@ -408,7 +423,7 @@ def get_expression_from_rule_name(domain, api_token, rule_name="AutoBlock-Custom
 
     zone_id=get_zone_id_from_domain(api_token,domain)
     # 1️⃣ Lấy danh sách firewall rules
-    api_rules = f"https://api.cloudflare.com/client/v4/zones/{zone_id}/firewall/rules"
+    api_rules = f"https://api.cloudflare.com/client/v4/zones/{zone_id}/firewall/rules?per_page=1000"
     resp = requests.get(api_rules, headers=headers, timeout=15).json()
     if not resp.get("success"):
         print(f"❌ Can't fetch rules: {resp}")
@@ -461,9 +476,17 @@ def create_firewall_rule(domain, api_token, rule_name="AutoBlock-CustomRule",exp
         "paused": False,
         "description": rule_name
     }]
-    resp = requests.post(api_filters, headers=headers, json=filter_payload, timeout=15)
-    new_filter = resp.json()
 
+    try:
+        #resp = requests.post(api_filters, headers=headers, json=filter_payload, timeout=15)
+        resp = requests.post(api_filters, headers=dict(headers), data=json.dumps(filter_payload), timeout=15)
+        if resp.status_code == 200:
+          new_filter = resp.json()
+        else:
+          new_filter = {}
+    except Exception as e:
+        print("Can't create filter")
+    #new_filter = resp.json()
     if not new_filter.get("success"):
         print(f"❌ Can't create filter: {new_filter}")
         return None
@@ -478,7 +501,7 @@ def create_firewall_rule(domain, api_token, rule_name="AutoBlock-CustomRule",exp
         "action": action,
         "description": rule_name
     }]
-    rule_resp = requests.post(api_rules, headers=headers, json=rule_payload, timeout=15)
+    rule_resp = requests.post(api_rules, headers=dict(headers), data=json.dumps(rule_payload), timeout=15)
     rule_data = rule_resp.json()
 
     if rule_resp.status_code != 200 or not rule_data.get("success"):
@@ -487,3 +510,84 @@ def create_firewall_rule(domain, api_token, rule_name="AutoBlock-CustomRule",exp
 
     print(f"✅ Created firewall rule: {rule_data['result'][0]['id']}")
     return rule_data['result'][0]['id']
+def cf_rename_rule_by_name(domain,api_token, old_name, new_name, timeout=15):
+    """
+    Rename a Cloudflare Firewall rule based on its current name.
+
+    :param api_rules_base: str, base URL CF rules API
+    :param headers: dict, Authorization headers
+    :param old_name: str, current description of the rule
+    :param new_name: str, new description
+    :param timeout: int, request timeout in seconds
+    :return: dict, response JSON of the PATCH request or {}
+    """
+    headers = {
+      "Authorization": "Bearer {}".format(api_token)
+    }
+    zone_id=get_zone_id_from_domain(api_token,domain)
+    api_rules = "https://api.cloudflare.com/client/v4/zones/{}/firewall/rules?per_page=1000".format(zone_id)
+    try:
+        # 1️⃣ Lấy danh sách tất cả rules
+        resp = requests.get(api_rules, headers=headers, timeout=timeout)
+        try:
+            rules_list = resp.json()
+        except ValueError:
+            print("Invalid JSON response:", resp.text)
+            return {}
+        
+        # 2️⃣ Tìm rule có description = old_name
+        rule_id = None
+        for r in rules_list.get("result", []):
+            if r.get("description") == old_name:
+                rule_id = r.get("id")
+                break
+        print(rule_id)
+        #pprint.pprint(resp.json())
+        if not rule_id:
+            print("Rule with name '{}' not found.".format(old_name))
+            return {}
+        filter_id=get_filter_id(zone_id,rule_id,api_token)
+        # 3️⃣ Patch để đổi tên
+        #patch_url = "{}/{}".format(api_rules.rstrip("/"), rule_id)
+        patch_url = "https://api.cloudflare.com/client/v4/zones/{}/firewall/rules/{}".format(zone_id,rule_id)
+        payload = {"id": rule_id, "description": new_name,"filter": {"id": filter_id},"action": "block"}
+        patch_resp = requests.put(
+            patch_url,
+            headers=dict(headers, **{"Content-Type": "application/json"}),
+            data=json.dumps(payload),
+            timeout=timeout
+        )
+        try:
+            return patch_resp.json()
+        except ValueError:
+            print("Non-JSON response:", patch_resp.text)
+            return {}
+        
+    except Exception as e:
+        print("Error renaming rule:", e)
+        return {}
+
+#########
+def get_filter_id(zone_id, rule_id, api_token):
+    """
+    Lấy filter_id của một Cloudflare Firewall Rule
+    """
+    url = f"https://api.cloudflare.com/client/v4/zones/{zone_id}/firewall/rules/{rule_id}"
+    headers = {
+        "Authorization": f"Bearer {api_token}",
+        "Content-Type": "application/json"
+    }
+
+    resp = requests.get(url, headers=headers)
+    if resp.status_code != 200:
+        raise Exception(f"Failed to get rule: {resp.status_code} {resp.text}")
+
+    data = resp.json()
+    if not data.get("success"):
+        raise Exception(f"API error: {data}")
+
+    filter_info = data["result"].get("filter")
+    if not filter_info or "id" not in filter_info:
+        raise Exception("Filter ID not found in rule")
+
+    return filter_info["id"]

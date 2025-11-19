@@ -1,133 +1,34 @@
-import requests
-def get_zone_id_from_domain(cf_token, domain, account_id=None, timeout=10):
-    """
-	get zone from domain/sub
-    """
-    headers = {
-        "Authorization": f"Bearer {cf_token}",
-        "Content-Type": "application/json",
-    }
-    parts = domain.strip().lower().split(".")
-    if len(parts) > 2:
-        root_domain = ".".join(parts[-2:])  # lấy 2 phần cuối
-        print(f"ℹ️ {domain} is subdomain, zone ID is {root_domain}")
-    else:
-        root_domain = domain
-    params = {"name": root_domain}
-    if account_id:
-        params["account.id"] = account_id
-
-    url = "https://api.cloudflare.com/client/v4/zones"
-
-    try:
-        resp = requests.get(url, headers=headers, params=params, timeout=timeout)
-        data = resp.json()
-    except Exception as e:
-        print(f"[CF] Can't get zone id from {domain}: {e}")
-        return None
-
-    if resp.status_code != 200 or not data.get("success"):
-        print(f"[CF] Can't get zone id from {domain}: {data}")
-        return None
-
-    results = data.get("result", [])
-    if not results:
-        print(f"[CF] Can't get Zone id from domain {domain}")
-        return None
-
-    return results[0].get("id")
-
-def get_expression_from_rule_name(domain, api_token, rule_name="AutoBlock-CustomRule"):
-    headers = {
-        "Authorization": f"Bearer {api_token}",
-        "Content-Type": "application/json"
-    }
-
-    zone_id=get_zone_id_from_domain(api_token,domain)
-    # 1️⃣ Lấy danh sách firewall rules
-    api_rules = f"https://api.cloudflare.com/client/v4/zones/{zone_id}/firewall/rules"
-    resp = requests.get(api_rules, headers=headers, timeout=15).json()
-    if not resp.get("success"):
-        print(f"❌ Can't fetch rules: {resp}")
-        return None
-
-    # 2️⃣ Tìm rule theo tên
-    target_rule = next((r for r in resp["result"] if r["description"] == rule_name), None)
-    if not target_rule:
-        print(f"❌ Rule '{rule_name}' not found")
-        return None
-
-    # 3️⃣ Lấy filter id
-    filter_id = target_rule.get("filter", {}).get("id")
-    if not filter_id:
-        print(f"❌ Rule '{rule_name}' has no filter attached")
-        return None
-
-    # 4️⃣ Get filter detail
-    api_filters = f"https://api.cloudflare.com/client/v4/zones/{zone_id}/filters/{filter_id}"
-    filter_resp = requests.get(api_filters, headers=headers, timeout=15).json()
-    if not filter_resp.get("success"):
-        print(f"❌ Can't fetch filter: {filter_resp}")
-        return None
-
-    expression = filter_resp["result"]["expression"]
-    print(f"✅ Expression for rule '{rule_name}': {expression}")
-    return expression
-
-def create_firewall_rule(domain, api_token, rule_name="AutoBlock-CustomRule",expression='ip.src == 0.1.2.3 ', action="block"):
-    """
-    Create Firewall Rule (API old)  filters + rules
-
-    Args:
-        zone_id: Zone ID Cloudflare
-        api_token: API Token ( Permission Zone Firewall Services:Edit)
-        expression: Cloudflare filter expression
-        rule_name: 
-        action: block | allow | challenge | js_challenge | log
-    """
-    zone_id=get_zone_id_from_domain(api_token,domain)
-    headers = {
-        "Authorization": f"Bearer {api_token}",
-        "Content-Type": "application/json"
-    }
-
-    # 1️⃣ Create filter
-    api_filters = f"https://api.cloudflare.com/client/v4/zones/{zone_id}/filters"
-    filter_payload = [{
-        "expression": expression,
-        "paused": False,
-        "description": rule_name
-    }]
-    resp = requests.post(api_filters, headers=headers, json=filter_payload, timeout=15)
-    new_filter = resp.json()
-
-    if not new_filter.get("success"):
-        print(f"❌ Can't create filter: {new_filter}")
-        return None
-
-    filter_id = new_filter["result"][0]["id"]
-    print(f"✅ Created filter: {filter_id}")
-
-    # 2️⃣ Create Firewall Rule on filter 
-    api_rules = f"https://api.cloudflare.com/client/v4/zones/{zone_id}/firewall/rules"
-    rule_payload = [{
-        "filter": {"id": filter_id},
-        "action": action,
-        "description": rule_name
-    }]
-    rule_resp = requests.post(api_rules, headers=headers, json=rule_payload, timeout=15)
-    rule_data = rule_resp.json()
-
-    if rule_resp.status_code != 200 or not rule_data.get("success"):
-        print(f"❌ Can't create rule: {rule_data}")
-        return None
-
-    print(f"✅ Created firewall rule: {rule_data['result'][0]['id']}")
-    return rule_data['result'][0]['id']
-
-
+#!/usr/bin/env python3
+import sys
+import pprint
+from functions import *
+cfg = load_config("/opt/splunk/bin/scripts/config.ini")
+#cfg = load_config("config.ini")
+BOT_TOKEN = cfg["telegram"]["bot_token"]
+CHAT_ID = cfg["telegram"]["chat_id"]
+CF_TOKEN = cfg["cloudflare"]["api_token"]
 #zone_id=get_zone_id_from_domain("123","sgbgame.win")
 #print(zone_id)
-create_firewall_rule("sgbgame.win","123","AutoBlock-CustomRule1")
-express=get_expression_from_rule_name("sgbgame.win","123")
-print(express)
+# Chuỗi expression
+expression = '(http.host eq "bordergw.api-inovated.com" and ip.src eq 171.251.152.159) or (http.host eq "bordergw.api-inovated.com" and ip.src eq 113.189.117.242) or ...'
+expression = '(http.host eq "bordergw.api-inovated.com" and ip.src eq 171.251.152.159) or (http.host eq "bordergw.api-inovated.com" and ip.src eq 113.189.117.242) or (http.host eq "bordergw.api-inovated.com" and ip.src eq 27.67.120.49) or (http.host eq "bordergw.api-inovated.com" and ip.src eq 103.199.32.195) or (http.host eq "bordergw.api-inovated.com" and ip.src eq 103.153.78.236) or (http.host eq "bordergw.api-inovated.com" and ip.src eq 113.185.45.218) or (http.host eq "bordergw.api-inovated.com" and ip.src eq 103.180.151.71) or (http.host eq "bordergw.api-inovated.com" and ip.src eq 103.207.38.166) or (http.host eq "bordergw.api-inovated.com" and ip.src eq 103.177.108.218) or (http.host eq "bordergw.api-inovated.com" and ip.src eq 103.156.92.240) or (http.host eq "bordergw.api-inovated.com" and ip.src eq 103.156.91.8) or (http.host eq "bordergw.api-inovated.com" and ip.src eq 171.234.10.66) or (http.host eq "bordergw.api-inovated.com" and ip.src eq 103.207.37.61) or (http.host eq "bordergw.api-inovated.com" and ip.src eq 103.177.108.205) or (http.host eq "bordergw.api-inovated.com" and ip.src eq 202.158.247.116) or (http.host eq "bordergw.api-inovated.com" and ip.src eq 160.250.166.239) or (http.host eq "bordergw.api-inovated.com" and ip.src eq 103.156.90.123) or (http.host eq "bordergw.api-inovated.com" and ip.src eq 103.207.39.71) or (http.host eq "bordergw.api-inovated.com" and ip.src eq 157.66.252.99) or (http.host eq "bordergw.api-inovated.com" and ip.src eq 103.147.185.209) or (http.host eq "bordergw.api-inovated.com" and ip.src eq 2401:d800:9db1:3843:6493:c87f:2d6c:4dcd) or (http.host eq "bordergw.api-inovated.com" and ip.src eq 171.234.10.91) or (http.host eq "bordergw.api-inovated.com" and ip.src eq 113.185.47.58) or (http.host eq "bordergw.api-inovated.com" and ip.src eq 103.114.105.162) or (http.host eq "bordergw.api-inovated.com" and ip.src eq 103.149.13.76) or (http.host eq "bordergw.api-inovated.com" and ip.src eq 103.177.109.137) or (http.host eq "bordergw.api-inovated.com" and ip.src eq 180.214.238.117) or (http.host eq "bordergw.api-inovated.com" and ip.src eq 113.185.104.130) or (http.host eq "bordergw.api-inovated.com" and ip.src eq 103.177.108.213) or (http.host eq "bordergw.api-inovated.com" and ip.src eq 103.180.152.236) or (http.host eq "bordergw.api-inovated.com" and ip.src eq 180.214.236.125) or (http.host eq "bordergw.api-inovated.com" and ip.src eq 103.190.81.60) or (http.host eq "bordergw.api-inovated.com" and ip.src eq 113.185.104.200) or (http.host eq "bordergw.api-inovated.com" and ip.src eq 42.1.84.14) or (http.host eq "bordergw.api-inovated.com" and ip.src eq 112.213.87.196) or (http.host eq "bordergw.api-inovated.com" and ip.src eq 103.141.138.120) or (http.host eq "bordergw.api-inovated.com" and ip.src eq 103.177.109.32) or (http.host eq "bordergw.api-inovated.com" and ip.src eq 113.185.76.151) or (http.host eq "bordergw.api-inovated.com" and ip.src eq 171.253.233.51) or (http.host eq "bordergw.api-inovated.com" and ip.src eq 115.72.73.161) or (http.host eq "bordergw.api-inovated.com" and ip.src eq 171.234.10.107) or (http.host eq "bordergw.api-inovated.com" and ip.src eq 115.73.200.96) or (http.host eq "bordergw.api-inovated.com" and ip.src eq 113.185.40.193) or (http.host eq "bordergw.api-inovated.com" and ip.src eq 27.67.120.205) or (http.host eq "bordergw.api-inovated.com" and ip.src eq 113.185.41.60) or (http.host eq "bordergw.api-inovated.com" and ip.src eq 113.185.76.15) or (http.host eq "bordergw.api-inovated.com" and ip.src eq 113.185.43.82) or (http.host eq "bordergw.api-inovated.com" and ip.src eq 27.67.121.152) or (http.host eq "bordergw.api-inovated.com" and ip.src eq 27.67.121.225) or (http.host eq "bordergw.api-inovated.com" and ip.src eq 103.199.32.103) or (http.host eq "bordergw.api-inovated.com" and ip.src eq 59.153.238.156) or (http.host eq "bordergw.api-inovated.com" and ip.src eq 14.225.51.146) or (http.host eq "bordergw.api-inovated.com" and ip.src eq 103.156.93.74)'
+# 1️⃣ Số ký tự
+num_chars = len(expression)
+print("Số ký tự:", num_chars)
+
+# 2️⃣ Kích thước byte (UTF-8)
+num_bytes = len(expression.encode('utf-8'))
+print("Kích thước (byte UTF-8):", num_bytes)
+sys.exit(1)
+try:
+	cf_rename_rule_by_name("api-inovated.com",CF_TOKEN,"AutoBlock-CustomRule1","AutoBlock-CustomRule2")
+	#create_firewall_rule("api-inovated.com",CF_TOKEN,"AutoBlock-CustomRule1")
+	msg = "ok"
+	with open("test.log", "a") as f:
+     		f.write("ok")
+except Exception as e:
+	with open("test.log", "a") as f:
+        	f.write("e")
+	send_telegram_message("8024472794:AAEtN4Ccf722_Fxrw5ak7jDuxsJUG8hJXZ8", 7720672433, e)
+#express=get_expression_from_rule_name("sgbgame.win","123")
+#print(express)
