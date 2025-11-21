@@ -23,6 +23,7 @@ sys.exit(1)
 try:
 	cf_rename_rule_by_name("api-inovated.com",CF_TOKEN,"AutoBlock-CustomRule1","AutoBlock-CustomRule2")
 	#create_firewall_rule("api-inovated.com",CF_TOKEN,"AutoBlock-CustomRule1")
+	create_firewall_rule(domain,cf_token,"AutoBlock-CustomRule",updated_expr)
 	msg = "ok"
 	with open("test.log", "a") as f:
      		f.write("ok")
